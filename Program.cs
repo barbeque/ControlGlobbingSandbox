@@ -69,7 +69,7 @@ namespace ControlGlobbingSandbox
             // basic operation, just clean these out
             var parent = GetParentOf(relationship.DependsOn, root);
 
-            if (parent.ControlType == "Grid")
+            if (parent.ControlType == "Container")
             {
                 // We are transferring from one container to the other, so get the old parent of the control we are globbing
                 var positionedControlParent = GetParentOf(relationship.PositionedControl, root);
@@ -120,6 +120,9 @@ namespace ControlGlobbingSandbox
         public string ControlType { get; set; }
         public List<Control> Children { get; set; }
 
+        public int GridColumn { get; set; }
+        public int GridRow { get; set; }
+
         public Dictionary<string, string> Attributes { get; set; }
 
         public Control()
@@ -127,97 +130,120 @@ namespace ControlGlobbingSandbox
             Children = new List<Control>();
             Attributes = new Dictionary<string, string>();
 
+            GridRow = 0;
+            GridColumn = 0;
+
             Key = Guid.NewGuid().ToString();
         }
     }
 
     class ContainerControl : Control
     {
-        private const string rowAttributeName = "Grid.Row";
-        private const string columnAttributeName = "Grid.Column";
-
         public void Insert(Control newControl, Control relativeTo, RelativePosition edge)
         {
             if (Children.Count > 0)
             {
-                // Standard case, regular insert
-                switch (edge)
+                if(IsVerticalPlacement(edge))
                 {
-                    case RelativePosition.BottomOf:
-                        var targetRow = GetRowOfChild(relativeTo) + 1;
+                    // Vertical insert
+                    int targetRow = relativeTo.GridRow + (edge == RelativePosition.TopOf ? -1 : 1);
 
-                        newControl.Attributes[rowAttributeName] = (GetRowOfChild(relativeTo) + 1).ToString();
-                        break;
-                    case RelativePosition.RightOf:
-                        newControl.Attributes[columnAttributeName] = (GetColumnOfChild(relativeTo) + 1).ToString();
-                        break;
-                    case RelativePosition.LeftOf:
-                        // Put a to the right of b
-                        if (GetColumnOfChild(relativeTo) < 1)
-                        {
-                            ShiftColumnsRight();
-                        }
-                        newControl.Attributes[columnAttributeName] = (GetColumnOfChild(relativeTo) - 1).ToString();
-                        break;
-                    case RelativePosition.TopOf:
-                        // Put a below b
-                        if (GetRowOfChild(relativeTo) < 1)
-                        {
-                            // Free up a slot by shifting rows
-                            ShiftRowsDown();
-                        }
-                        newControl.Attributes[rowAttributeName] = (GetRowOfChild(relativeTo) - 1).ToString(); // Relative to new index.
-                        break;
-                    default:
-                        throw new NotSupportedException($"I have no idea what {Enum.GetName(typeof(RelativePosition), edge)} is.");
-                }
-
-                Children.Add(newControl);
-            }
-            else
-            {
-                // Nothing in this yet, who cares?
-                Children.Add(newControl);
-            }
-
-            // For debugging purposes only
-            AssertIntegrity();
-        }
-
-        private void AssertIntegrity()
-        {
-            foreach (var childA in Children)
-            {
-                foreach (var childB in Children.Except(new[] { childA }))
-                {
-                    if (IsVerticalOrientation())
+                    if(targetRow < 0)
                     {
-                        if (GetRowOfChild(childA) == GetRowOfChild(childB))
+                        ShiftRowsDown();
+                    }
+
+                    var alreadyThere = GetAtRow(targetRow);
+                    
+                    if(alreadyThere != null)
+                    {
+                        if (alreadyThere.ControlType == "Container")
                         {
-                            throw new Exception($"{childA.Key} and {childB.Key} somehow ended up with the same row!");
+                            throw new NotImplementedException("Globbing into existing container, determine orientation and get 'last' element...");
+                        }
+                        else
+                        {
+                            // Uhhhh I assume we're going to create a grid where C is right of B.
+                            var newGrid = new ContainerControl();
+
+                            // Reset old row settings, if any
+                            alreadyThere.GridRow = 0;
+                            newGrid.Children.Add(alreadyThere); // add to new grid
+                            this.Children.Remove(alreadyThere); // remove from me
+
+                            // now insert the new guy into the new grid, i guess now creating a dependency
+                            newGrid.Insert(newControl, alreadyThere, RelativePosition.RightOf);
+
+                            // now insert the grid, replacing the element that was there before.
+                            // this should work?
+                            this.Insert(newGrid, relativeTo, edge);
                         }
                     }
                     else
                     {
-                        if (GetColumnOfChild(childA) == GetColumnOfChild(childB))
+                        newControl.GridRow = targetRow;
+                        Children.Add(newControl);
+                    }
+                }
+                else
+                {
+                    // Horizontal insert
+                    int targetColumn = relativeTo.GridColumn + (edge == RelativePosition.LeftOf ? -1 : 1);
+
+                    if(targetColumn < 0)
+                    {
+                        ShiftColumnsRight();
+                    }
+
+                    var alreadyThere = GetAtColumn(targetColumn);
+
+                    if(alreadyThere != null)
+                    {
+                        if(alreadyThere.ControlType == "Container")
                         {
-                            throw new Exception($"{childA.Key} and {childB.Key} somehow ended up with the same column!");
+                            throw new NotImplementedException("Globbing into existing container, determine orientation and get 'last' element...");
                         }
+                        else
+                        {
+                            // Uhhhh I assume we're going to create a grid where C is below B.
+                            var newGrid = new ContainerControl();
+
+                            // Reset old column settings if any
+                            alreadyThere.GridColumn = 0;
+                            newGrid.Children.Add(alreadyThere); // add to new grid
+                            this.Children.Remove(alreadyThere); // remove from me
+
+                            // now insert the new guy into the new grid, i guess now creating a dependency
+                            newGrid.Insert(newControl, alreadyThere, RelativePosition.BottomOf);
+
+                            // now insert the grid, replacing the element that was there before.
+                            // this should work?
+                            this.Insert(newGrid, relativeTo, edge);
+                        }
+                    }
+                    else
+                    {
+                        newControl.GridColumn = targetColumn;
+                        Children.Add(newControl);
                     }
                 }
             }
-
-            // TODO: Check for gaps???
-        }
+            else
+            {
+                // Nothing in this yet, who cares?
+                newControl.GridRow = newControl.GridColumn = 0;
+                Children.Add(newControl);
+            }
+        }      
 
         private Control GetAtRow(int row)
         {
-
+            return Children.FirstOrDefault(c => c.GridRow == row);
         }
 
         private Control GetAtColumn(int column)
         {
-
+            return Children.FirstOrDefault(c => c.GridColumn == column);
         }
 
         private bool IsHorizontalPlacement(RelativePosition p)
@@ -229,106 +255,25 @@ namespace ControlGlobbingSandbox
         {
             return p == RelativePosition.TopOf || p == RelativePosition.BottomOf;
         }
-
-        private int GetRowOfChild(Control immediateChild)
-        {
-            // First, check.
-            if (Children.Count > 1 && IsHorizontalOrientation())
-            {
-                throw new ArgumentException($"Trying to get the row number of {immediateChild.Key} inside a horizontal container ({this.Key})!");
-            }
-
-            // Then, procure.
-            if (immediateChild.Attributes.ContainsKey(rowAttributeName))
-            {
-                return int.Parse(immediateChild.Attributes[rowAttributeName]);
-            }
-            else
-            {
-                return 0;
-            }
-        }
-
-        private int GetColumnOfChild(Control immediateChild)
-        {
-            // First, check.
-            if (Children.Count > 1 && IsVerticalOrientation())
-            {
-                throw new ArgumentException($"Trying to get the column number of {immediateChild.Key} inside a vertical container ({this.Key})!");
-            }
-
-            // Then, procure.
-            if (immediateChild.Attributes.ContainsKey(columnAttributeName))
-            {
-                return int.Parse(immediateChild.Attributes[columnAttributeName]);
-            }
-            else
-            {
-                return 0;
-            }
-        }
-
-        private bool IsVerticalOrientation()
-        {
-            // Debugger method to tell me if the grid is considered to be 'vertical' or 'horizontal.'
-            if (Children.Count < 2)
-            {
-                return true; // Sure do whatever
-            }
-
-            return (!Children.Any(x => x.Attributes.ContainsKey("Grid.Column")));
-        }
-
-        private bool IsHorizontalOrientation()
-        {
-            if (Children.Count < 2)
-            {
-                return true; // Actually indeterminate but whatever...
-            }
-
-            return (!Children.Any(x => x.Attributes.ContainsKey("Grid.Row")));
-        }
-
+        
         private void ShiftColumnsRight()
         {
             // Shifts all column entries right by one, so we can insert on the leftmost side
-            const string key = "Grid.Column";
             foreach (var child in Children)
             {
-                if (child.Attributes.ContainsKey(key))
-                {
-                    // Shift one right
-                    child.Attributes[key] = (int.Parse(child.Attributes[key]) + 1).ToString();
-                }
-                else
-                {
-                    // Assume Grid.Column = 0 by default
-                    child.Attributes[key] = "1";
-                }
+                child.GridColumn += 1;
             }
         }
 
         private void ShiftRowsDown()
         {
             // Shifts all row entries down by one, so we can insert at the top
-            const string key = "Grid.Row";
             foreach (var child in Children)
             {
-                if (child.Attributes.ContainsKey(key))
-                {
-                    // Shift one right
-                    child.Attributes[key] = (int.Parse(child.Attributes[key]) + 1).ToString();
-                }
-                else
-                {
-                    // Assume Grid.Column = 0 by default
-                    child.Attributes[key] = "1";
-                }
+                child.GridRow += 1;
             }
         }
     }
-
-    // TODO: Should I subclass Grid (ContainerControl?) so it has a bunch of convenience functions?
 
     enum RelativePosition
     {
