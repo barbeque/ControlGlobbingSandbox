@@ -15,15 +15,18 @@ namespace ControlGlobbingSandbox
             var a = new Control { Key = "A", ControlType = "Data" };
             var b = new Control { Key = "B", ControlType = "Data" };
             var c = new Control { Key = "C", ControlType = "Data" };
+            var d = new Control { Key = "D", ControlType = "Data" };
 
-            root.Children.AddRange(new[] { a, b, c });
+            root.Children.AddRange(new[] { a, b, c, d });
 
             var relationships = new List<PositioningRelationship>();
 
-            // B is RightOf A
+            // B is RightOf A - tests creating a new grid to position two normal elements
             relationships.Add(new PositioningRelationship { PositionedControl = b, RelativePositioning = RelativePosition.RightOf, DependsOn = a, });
-            // C is RightOf A
+            // C is RightOf A - tests hitting an occupied cell, and creating a new grid as a result
             relationships.Add(new PositioningRelationship { PositionedControl = c, RelativePositioning = RelativePosition.RightOf, DependsOn = a });
+            // D is RightOf A - tests hitting an occupied cell, which is also the grid containing <B, C>, and having to add itself to that grid.
+            relationships.Add(new PositioningRelationship { PositionedControl = d, RelativePositioning = RelativePosition.RightOf, DependsOn = a });
 
             var p = new Program();
             p.Run(root, relationships);
@@ -105,7 +108,7 @@ namespace ControlGlobbingSandbox
         private Control WrapInGrid(Control a, Control b, RelativePosition positioning)
         {
             // Case 1: Create new grid
-            var grid = new ContainerControl { Key = "Grid" + a.Key + "-" + b.Key, ControlType = "Container" };
+            var grid = new ContainerControl { Key = "Grid" + a.Key + "-" + b.Key };
 
             grid.Children.Add(a); // Add it so we have something to base off of
             grid.Insert(b, a, positioning); // Insert relative to the new item
@@ -296,6 +299,11 @@ namespace ControlGlobbingSandbox
             {
                 child.GridRow += 1;
             }
+        }
+        
+        public ContainerControl()
+        {
+            ControlType = "Container";
         }
     }
 
