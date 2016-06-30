@@ -1,8 +1,10 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
+using System.Xml.Serialization;
 
 namespace ControlGlobbingSandbox
 {
@@ -30,6 +32,21 @@ namespace ControlGlobbingSandbox
 
             var p = new Program();
             p.Run(root, relationships);
+
+            // Serialize to XElement
+            var xmlSerializer = new XmlSerializer(typeof(Control));
+            var xmlString = string.Empty;
+
+            using (var ms = new MemoryStream())
+            {
+                using (var writer = new StreamWriter(ms))
+                {
+                    xmlSerializer.Serialize(writer, root);
+                    xmlString = Encoding.ASCII.GetString(ms.ToArray());
+                }
+            }
+
+            Console.WriteLine(xmlString);
         }
 
         public void Run(Control root, List<PositioningRelationship> constraints)
@@ -117,21 +134,30 @@ namespace ControlGlobbingSandbox
         }
     }
 
-    class Control
+    /// <summary>
+    /// Any control that can have children. Should render to specific ControlTypes.
+    /// </summary>
+    [XmlInclude(typeof(ContainerControl))]
+    [Serializable] public class Control
     {
+        [XmlElement("ID")]
         public string Key { get; set; }
+
+        [XmlElement("ControlType")]
         public string ControlType { get; set; }
+
+        [XmlArray("ContainedControls")]
         public List<Control> Children { get; set; }
 
+        [XmlElement("Grid.Column")]
         public int GridColumn { get; set; }
+
+        [XmlElement("Grid.Row")]
         public int GridRow { get; set; }
-
-        public Dictionary<string, string> Attributes { get; set; }
-
+        
         public Control()
         {
             Children = new List<Control>();
-            Attributes = new Dictionary<string, string>();
 
             GridRow = 0;
             GridColumn = 0;
@@ -140,8 +166,17 @@ namespace ControlGlobbingSandbox
         }
     }
 
-    class ContainerControl : Control
+    /// <summary>
+    /// A control designed to control positioning of one or more controls. Should render to the WPF Grid type.
+    /// </summary>
+    public class ContainerControl : Control
     {
+        /// <summary>
+        /// Insert a control into this grid, relative to another control already present in the grid.
+        /// </summary>
+        /// <param name="newControl">The newly added control.</param>
+        /// <param name="relativeTo">A control already in the grid that you must position relative to.</param>
+        /// <param name="edge">Which edge of <see cref="relativeTo"/> to position against. If there are no controls in the grid, this directive will be ignored.</param>
         public void Insert(Control newControl, Control relativeTo, RelativePosition edge)
         {
             if (Children.Count > 0)
@@ -241,6 +276,11 @@ namespace ControlGlobbingSandbox
             }
         }      
 
+        /// <summary>
+        /// Call this when you are just adding a control to some grid,
+        /// where it doesn't really matter what you're doing.
+        /// </summary>
+        /// <param name="putAtTheEnd">The control being inserted.</param>
         private void GlobIntoGrid(Control putAtTheEnd)
         {
             // Figure out what the 'orientation' of the grid is
@@ -263,35 +303,72 @@ namespace ControlGlobbingSandbox
             Children.Add(putAtTheEnd);
         }
 
+        /// <summary>
+        /// Get the control living at a given row in this container.
+        /// 
+        /// Assumes the container is strictly vertical, such that row indices resolve to a unique control.
+        /// </summary>
+        /// <param name="row">The row #.</param>
+        /// <returns>The control at this row.</returns>
         private Control GetAtRow(int row)
         {
             return Children.FirstOrDefault(c => c.GridRow == row);
         }
 
+        /// <summary>
+        /// Get the control living at a given column in this container.
+        /// 
+        /// Assumes the container is strictly horizontal, such that columnar indices resolve to a unique control.
+        /// </summary>
+        /// <param name="column">The column #.</param>
+        /// <returns>The control at this column.</returns>
         private Control GetAtColumn(int column)
         {
             return Children.FirstOrDefault(c => c.GridColumn == column);
         }
 
+        /// <summary>
+        /// Tells us if a requested relative position strategy is 'horizontal' or not.
+        /// 
+        /// Useful primarily for breaking up code along column/row processing rules.
+        /// </summary>
+        /// <param name="p">The placement rule</param>
+        /// <returns><c>true</c> if the placement strategy relates to left/right</returns>
         private bool IsHorizontalPlacement(RelativePosition p)
         {
             return p == RelativePosition.LeftOf || p == RelativePosition.RightOf;
         }
 
+        /// <summary>
+        /// Tells us if a requested relative position strategy is 'vertical' or not.
+        /// 
+        /// Useful primarily for breaking up code along column/row processing rules.
+        /// </summary>
+        /// <param name="p">The placement rule</param>
+        /// <returns><c>true</c> if the placement strategy relates to above/below</returns>
         private bool IsVerticalPlacement(RelativePosition p)
         {
             return p == RelativePosition.TopOf || p == RelativePosition.BottomOf;
         }
         
+        /// <summary>
+        /// For all items in the grid, add 1 to their column index.
+        /// 
+        /// Intended to be used so we can insert on the leftmost cell.
+        /// </summary>
         private void ShiftColumnsRight()
         {
-            // Shifts all column entries right by one, so we can insert on the leftmost side
             foreach (var child in Children)
             {
                 child.GridColumn += 1;
             }
         }
 
+        /// <summary>
+        /// For all items in the grid, add 1 to their row index.
+        /// 
+        /// Intended to be used so we can insert on the topmost cell.
+        /// </summary>
         private void ShiftRowsDown()
         {
             // Shifts all row entries down by one, so we can insert at the top
@@ -307,7 +384,10 @@ namespace ControlGlobbingSandbox
         }
     }
 
-    enum RelativePosition
+    /// <summary>
+    /// Which edge of a control is used for relative positioning.
+    /// </summary>
+    public enum RelativePosition
     {
         RightOf,
         LeftOf,
@@ -315,10 +395,24 @@ namespace ControlGlobbingSandbox
         BottomOf
     }
 
+    /// <summary>
+    /// The constraints of positioning two elements relative to each other.
+    /// </summary>
     class PositioningRelationship
     {
+        /// <summary>
+        /// The control that we are positioning relative to.
+        /// </summary>
         public Control DependsOn { get; set; }
+        
+        /// <summary>
+        /// The control being positioned relative to <see cref="DependsOn"/>.
+        /// </summary>
         public Control PositionedControl { get; set; }
+
+        /// <summary>
+        /// How the control will be positioned (on which edge of <see cref="DependsOn"/>.)
+        /// </summary>
         public RelativePosition RelativePositioning { get; set; }
     }
 }
