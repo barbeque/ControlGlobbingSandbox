@@ -159,7 +159,8 @@ namespace ControlGlobbingSandbox
                     {
                         if (alreadyThere.ControlType == "Container")
                         {
-                            throw new NotImplementedException("Globbing into existing container, determine orientation and get 'last' element...");
+                            // The element is already a grid so we've done all we can, just glob it into the original grid at what we assume is the correct thing.
+                            (alreadyThere as ContainerControl).GlobIntoGrid(newControl);
                         }
                         else
                         {
@@ -201,7 +202,8 @@ namespace ControlGlobbingSandbox
                     {
                         if(alreadyThere.ControlType == "Container")
                         {
-                            throw new NotImplementedException("Globbing into existing container, determine orientation and get 'last' element...");
+                            // The element is already a grid so we've done all we can, just glob it into the original grid at what we assume is the correct thing.
+                            (alreadyThere as ContainerControl).GlobIntoGrid(newControl);
                         }
                         else
                         {
@@ -235,6 +237,28 @@ namespace ControlGlobbingSandbox
                 Children.Add(newControl);
             }
         }      
+
+        private void GlobIntoGrid(Control putAtTheEnd)
+        {
+            // Figure out what the 'orientation' of the grid is
+            var totalColumns = Children.Sum(x => x.GridColumn);
+            var totalRows = Children.Sum(x => x.GridRow);
+
+            if(totalColumns > totalRows)
+            {
+                // Horizontal
+                putAtTheEnd.GridColumn = Children.Max(x => x.GridColumn) + 1;
+                putAtTheEnd.GridRow = 0;
+            }
+            else
+            {
+                // Vertical
+                putAtTheEnd.GridColumn = 0;
+                putAtTheEnd.GridRow = Children.Max(x => x.GridRow) + 1;
+            }
+            
+            Children.Add(putAtTheEnd);
+        }
 
         private Control GetAtRow(int row)
         {
